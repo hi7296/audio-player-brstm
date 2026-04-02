@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRSTM Simple Player Pro v3.7</title>
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Simple BRSTM audio player dengan mode offline support">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%23ffffff' width='192' height='192'/><circle cx='96' cy='96' r='40' fill='%230f0f0f'/><circle cx='96' cy='96' r='30' fill='%23ffffff'/><circle cx='96' cy='96' r='20' fill='%230f0f0f'/></svg>">
+    <title>BRSTM Simple Player Pro v3.8 OFFLINE</title>
     <style>
         :root {
             --bg: #0f0f0f;
@@ -44,6 +48,15 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.1);
             font-size: 1.2rem;
         }
+
+        .offline-badge {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(76, 175, 80, 0.9); color: white; padding: 8px 12px;
+            border-radius: 20px; font-size: 0.7rem; font-weight: 600;
+            letter-spacing: 1px; display: none; align-items: center; gap: 6px;
+        }
+
+        .offline-badge.show { display: flex; }
 
         .greeting-header { text-align: center; margin-bottom: 25px; }
         .greeting-title { font-size: 1.2rem; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.5px; }
@@ -101,6 +114,7 @@
 </head>
 <body>
 
+<div class="offline-badge" id="offlineBadge">🔒 OFFLINE</div>
 <button class="theme-toggle" id="themeToggle">🌓</button>
 
 <div class="greeting-header">
@@ -136,9 +150,55 @@
     <div class="info" id="metaInfo">PILIH FILE .BRSTM</div>
 </div>
 
+<script>
+    // Register Service Worker untuk offline support
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').then(reg => {
+            console.log('✅ Service Worker registered!', reg);
+        }).catch(err => console.log('Service Worker registration failed:', err));
+    }
+
+    // Check online/offline status
+    function updateOnlineStatus() {
+        const badge = document.getElementById('offlineBadge');
+        if (navigator.onLine) {
+            badge.classList.remove('show');
+        } else {
+            badge.classList.add('show');
+        }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+</script>
+
 <script type="module">
-    import * as brstmModule from 'https://esm.sh/brstm@1.1.0';
-    const BrstmDecoder = brstmModule.Brstm || brstmModule.default || brstmModule;
+    // Load BRSTM decoder dari local file atau fallback ke CDN
+    let BrstmDecoder;
+    
+    async function loadBrstmDecoder() {
+        try {
+            // Try load dari local file dulu
+            const resp = await fetch('./brstm.min.js');
+            if (resp.ok) {
+                const text = await resp.text();
+                eval(text);
+                return self.Brstm || window.Brstm;
+            }
+        } catch(e) {
+            console.log('Local BRSTM not found, trying CDN...');
+        }
+        
+        // Fallback ke CDN jika offline atau file tidak ada
+        try {
+            const module = await import('https://esm.sh/brstm@1.1.0');
+            return module.Brstm || module.default || module;
+        } catch(e) {
+            console.error('Failed to load BRSTM decoder:', e);
+            alert('Gagal load decoder BRSTM. Pastikan file brstm.min.js ada atau periksa koneksi internet!');
+            return null;
+        }
+    }
 
     let audioCtx, source, analyzer, animId;
     let isLoopEnabled = true;
@@ -275,6 +335,11 @@
                 const file = el.file.files[0];
                 if (!file) return; 
                 try {
+                    if (!BrstmDecoder) {
+                        BrstmDecoder = await loadBrstmDecoder();
+                        if (!BrstmDecoder) return;
+                    }
+                    
                     el.info.innerText = "DEKODING...";
                     const buffer = await file.arrayBuffer();
                     const brstm = new BrstmDecoder(buffer);
@@ -298,7 +363,10 @@
                     el.info.innerText = file.name;
                     offsetTime = 0;
                     playAt(0);
-                } catch(e) { el.info.innerText = "ERROR!"; }
+                } catch(e) { 
+                    console.error(e);
+                    el.info.innerText = "ERROR!"; 
+                }
             } else {
                 playAt(offsetTime);
             }
@@ -341,7 +409,12 @@
     };
     
     el.file.onchange = () => { audioBuffer = null; stopAudio(true); el.info.innerText = "FILE SIAP"; };
+
+    // Load BRSTM decoder saat app start
+    loadBrstmDecoder().then(decoder => {
+        BrstmDecoder = decoder;
+        console.log('✅ BRSTM Decoder loaded!');
+    });
 </script>
 </body>
 </html>
-
